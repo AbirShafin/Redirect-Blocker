@@ -1,6 +1,5 @@
 let shortCutToggleSingleKeys = ["alt", "shift", "s"];
 let shortCutToggleAllKeys = ["alt", "shift", "a"];
-let pressedKeys = [];
 chrome.storage.sync.get("settings", (result) => {
     const settings = result.settings;
     if (!settings)
@@ -26,51 +25,57 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 shortCutListener();
 function shortCutListener() {
-    let pressedKeys = [];
-    function debounce(cb, delay) {
-        let timeout;
-        return (...args) => {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => {
-                cb(...args);
-            }, delay);
-        };
+    function normalizeKey(key) {
+        if (!key)
+            return "";
+        const normalizedKey = key.trim().toLowerCase();
+        if (normalizedKey === "ctrl" || normalizedKey === "ctl")
+            return "control";
+        if (normalizedKey === "cmd" || normalizedKey === "command")
+            return "meta";
+        if (normalizedKey === "option")
+            return "alt";
+        if (normalizedKey === "esc")
+            return "escape";
+        if (normalizedKey === "spacebar")
+            return " ";
+        return normalizedKey;
     }
-    const checkKeys = (keysToCheck, waitDebounce = true, delay = 700) => {
-        return new Promise((resolve) => {
-            function debounceCB() {
-                if (!keysToCheck?.length)
-                    return resolve(false);
-                if (pressedKeys.length == keysToCheck.length) {
-                    let match = true;
-                    for (let i = 0; i < pressedKeys.length; i++) {
-                        if (pressedKeys[i] != keysToCheck[i]) {
-                            match = false;
-                            break;
-                        }
-                    }
-                    resolve(match);
-                }
-                else
-                    resolve(false);
-            }
-            if (waitDebounce)
-                debounce(debounceCB, delay)();
-            else
-                debounceCB();
-        });
-    };
-    document.addEventListener("keydown", async (e) => {
-        if (!e.key)
+    function matchesShortcut(event, keysToCheck) {
+        if (!keysToCheck?.length || !event.key)
+            return false;
+        const normalizedKeys = keysToCheck.map(normalizeKey).filter(Boolean);
+        if (!normalizedKeys.length)
+            return false;
+        const requiredModifiers = {
+            alt: normalizedKeys.includes("alt"),
+            control: normalizedKeys.includes("control"),
+            shift: normalizedKeys.includes("shift"),
+            meta: normalizedKeys.includes("meta"),
+        };
+        if (event.altKey !== requiredModifiers.alt)
+            return false;
+        if (event.ctrlKey !== requiredModifiers.control)
+            return false;
+        if (event.shiftKey !== requiredModifiers.shift)
+            return false;
+        if (event.metaKey !== requiredModifiers.meta)
+            return false;
+        const mainKeys = normalizedKeys.filter((key) => !["alt", "control", "shift", "meta"].includes(key));
+        if (!mainKeys.length) {
+            return ["alt", "control", "shift", "meta"].includes(normalizeKey(event.key));
+        }
+        return mainKeys.includes(normalizeKey(event.key));
+    }
+    document.addEventListener("keydown", (e) => {
+        if (!e.key || e.repeat)
             return;
-        pressedKeys.push(e.key.toLowerCase());
-        if (await checkKeys(shortCutToggleSingleKeys)) {
+        if (matchesShortcut(e, shortCutToggleSingleKeys)) {
             chrome.runtime.sendMessage({ toggleSingle: true });
         }
-        else if (await checkKeys(shortCutToggleAllKeys, false)) {
+        else if (matchesShortcut(e, shortCutToggleAllKeys)) {
             chrome.runtime.sendMessage({ toggleAll: true });
         }
-        pressedKeys = [];
     });
 }
 let tabId = null;
